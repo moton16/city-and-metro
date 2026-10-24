@@ -21,4 +21,5 @@ node_modules/
 .tools/
 *.log
 *.tmp
+tmp/
 
