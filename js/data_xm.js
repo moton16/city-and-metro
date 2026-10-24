@@ -184,7 +184,7 @@
       Object.assign(at(118.0905, 24.5824), { id: 'xm_lm_jmu', name: '集美大学', w: 700, d: 500, year: 1994, kind: 'campus' }),
       Object.assign(at(118.0789, 24.6063), { id: 'xm_lm_hqu', name: '华侨大学（厦门校区）', w: 800, d: 600, year: 2006, kind: 'campus' }),
       Object.assign(at(118.2340, 24.6115), { id: 'xm_lm_xmu_xa', name: '厦门大学（翔安校区）', w: 1200, d: 900, year: 2012, kind: 'campus' }),
-      Object.assign(at(118.1111, 24.4704), { id: 'xm_lm_station', name: '厦门站', w: 220, d: 130, rot: 70, year: 1957, kind: 'rail' }),
+      Object.assign(at(118.1111, 24.4714), { id: 'xm_lm_station', name: '厦门站', w: 240, d: 90, year: 1957, kind: 'rail', note: '站房（1980 年代重建成品字形）；站前广场在其南侧，地铁可在广场下方设站' }),
       Object.assign(at(118.0683, 24.6400), { id: 'xm_lm_north', name: '厦门北站', w: 700, d: 450, rot: -35, year: 2010, kind: 'rail' }),
       Object.assign(at(118.1297, 24.5438), { id: 'xm_lm_gaoqi', name: '高崎国际机场', w: 900, d: 420, rot: 8, year: 1983, kind: 'box', h: 32, note: '单跑道 4E 级；2026 年底转场翔安后关闭（史实）' }),
       Object.assign(at(118.3504, 24.5456), { id: 'xm_lm_xa_air', name: '翔安国际机场', w: 1400, d: 700, rot: 0, year: 2026, kind: 'box', h: 45 }),
@@ -352,7 +352,9 @@
       // 1990 年内地城市：基础资金 20 亿元（按 1990 年 GDP 57.09 亿元的约 0.35% 估算，标 [估]）；
       // 地方债基准 8.60%、城投债 +2.00 pt（10.60%）、6 年期 +0.40 pt（与广州 1990 同档，厦门信用略优）
       economy: Object.assign({}, CM.CFG.economy, {
-        startFunds: 200000, grantBase: [[1990, 12000], [1995, 18000], [2000, 30000], [2005, 45000], [2010, 70000], [2020, 105000], [2050, 170000]], debtLimit: -250000, rewardScale: 1.5,
+        // 初始资金：本图 34,112 格（广州 11,520 格的 2.96 倍），岛内线网要从 0 起步，且第一次跨海就要 35 亿量级，
+      // 故与广州/杭州同档（50 亿元），而不是默认的 30 亿。年度拨款按 1990 年厦门财政规模给低档。
+      startFunds: 500000, grantBase: [[1990, 12000], [1995, 18000], [2000, 30000], [2005, 45000], [2010, 70000], [2020, 105000], [2050, 170000]], debtLimit: -250000, rewardScale: 1.5,
         bonds: Object.assign({}, CM.CFG.economy.bonds, {
           local: Object.assign({}, CM.CFG.economy.bonds.local, { rate: [[1990, 0.086], [1996, 0.075], [2000, 0.046], [2008, 0.04], [2015, 0.035], [2020, 0.032], [2050, 0.03]] }),
           ct: Object.assign({}, CM.CFG.economy.bonds.ct, { spread: 0.02 }),
