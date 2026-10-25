@@ -75,7 +75,13 @@
       // 保护与水面
       { id: 'xm_gulangyu', n: '鼓浪屿', name: '鼓浪屿（历史风貌区）', streets: ['鼓浪屿街道'], open: null, plan: 'res', note: '1.88 km²，2017 年列入世界文化遗产；全岛按历史风貌保护，不开放建设（史实）' },
       { id: 'xm_mountains', n: '万石山—仙岳山', name: '万石山—仙岳山（城市山地）', poly: [wanshishan, xianyueshan], open: null, scenic: true, plan: 'res', note: '本岛中部山体与万石植物园、仙岳山公园，作为山林保护' },
-      { id: 'xm_xmu', n: '厦大—南普陀', name: '厦大—南普陀（保护）', streets: ['滨海街道'], open: null, plan: 'campus', note: '厦门大学（1921）、南普陀寺与五老峰南麓，整体按文教与风景保护（历史近似：1990 年曾厝垵、黄厝仍为渔村）' },
+      // 滨海街道 1990 年就有人住（厦大 1921、曾厝垵/黄厝渔村），不能设 open: null。
+      // open: null 在引擎里是"永不开放"：city.js:963 该区格永不增长、metro.js:441 整区一个站都建不了、
+      // metro.js:121 连线路经过都报"经过尚未开放的区域"。而 3 号线南延段（2022-01 开工，8.292 km、5 站全地下，
+      // 2026-02 全线封顶）整条走廊都在滨海街道：沙坡尾—厦大南门—厦大白城—曾厝垵—上李新村。
+      // 保护改由 landmarks 精确框建筑本体：新增 群贤楼群 / 建南楼群 两个 traditional 地标占格，
+      // 南普陀寺原有 temple 地标不动；校园其余格保留 campus 地标（可设站，保校舍与人口）。
+      { id: 'xm_xmu', n: '厦大—南普陀', name: '厦大—南普陀（文教与风景）', streets: ['滨海街道'], open: 1990, plan: 'campus', note: '厦门大学（1921）、南普陀寺与五老峰南麓；1990 年曾厝垵、黄厝仍为渔村，2000 年代后成为居住与文创区。3 号线南延段（2022-01 开工、2026 通车）在此设沙坡尾、厦大南门、厦大白城、曾厝垵、上李新村 5 站（史实）' },
       { id: 'xm_yundang', n: '筼筜湖', name: '筼筜湖（水面与环湖绿地）', poly: yundang, open: 1990, plan: 'res', note: '1970-07 筑堤、1971-09 围垦成内湖，水域缩至 1.6 km²；湖面由水陆掩膜判为水域、不能设站，但轨道可以从湖底穿过（open 不能设 null，否则滨北整片会被当成未开放区而锁死穿越）' },
       { id: 'xm_jimei_xuecun', n: '集美学村', name: '集美学村（保护）', streets: ['集美街道'], open: 1990, plan: 'campus', note: '陈嘉庚 1913 年创办的学村，嘉庚建筑群按历史风貌保护（史实）；学村本身 1990 年即在，不能设 null（否则集美街道整片锁死，跨海到集美的线全被拦）' },
       // 本岛
@@ -176,6 +182,10 @@
       Object.assign(at(118.0680, 24.4430), { id: 'xm_lm_riguangyan', name: '日光岩', w: 80, d: 80, year: 1900, kind: 'tower', h: 92 }),
       Object.assign(at(118.0932, 24.4400), { id: 'xm_lm_xmu', name: '厦门大学（思明校区）', w: 1200, d: 900, rot: -15, year: 1921, kind: 'campus' }),
       Object.assign(at(118.0916, 24.4436), { id: 'xm_lm_nanputuo', name: '南普陀寺', w: 220, d: 260, year: 1684, kind: 'temple' }),
+      // 厦大老建筑群：滨海街道改为可建设后，靠这两个窄地标把建筑本体占成受保护地标（non-campus 才会拦设站，见 metro.js:448）。
+      // 上弦场在白城沙滩内侧，此处已由水陆掩膜判为水域，天然不可建，不再单设地标。
+      Object.assign(at(118.0885, 24.4390), { id: 'xm_lm_xmu_qunxian', name: '厦大群贤楼群（五栋）', w: 130, d: 420, year: 1926, kind: 'traditional', note: '群贤、同安、集美、映雪、囊萤五栋一列，1921–1926 年建成的嘉庚风格首批校舍' }),
+      Object.assign(at(118.0895, 24.4358), { id: 'xm_lm_xmu_jiannan', name: '厦大建南楼群', w: 400, d: 170, year: 1954, kind: 'traditional', note: '建南大会堂与成义、南安、南光、国光楼，1950 年代建成的嘉庚风格第二组校舍' }),
       Object.assign(at(118.1016, 24.4315), { id: 'xm_lm_hulishan', name: '胡里山炮台', w: 320, d: 220, rot: 10, year: 1894, kind: 'memorial' }),
       Object.assign(at(118.0768, 24.4568), { id: 'xm_lm_zhongshanlu', name: '中山路骑楼', w: 600, d: 90, rot: 32, year: 1920, kind: 'shop' }),
       Object.assign(at(118.0880, 24.4470), { id: 'xm_lm_shimao', name: '世茂海峡大厦（双塔）', w: 130, d: 100, year: 2015, kind: 'skyscraper', h: 300, note: '演武大桥旁的双塔，300 m（史实，位置近似）' }),
