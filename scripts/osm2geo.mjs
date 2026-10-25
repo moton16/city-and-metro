@@ -60,6 +60,9 @@ const CFG = {
     // 厦门园林博览苑（OSM way 1071037843）：公园边界本身就跨着杏林湾水面，默认容差会抽成 6 点六边形，
     // 被 render.js 当实心面刷成一大片绿地压在湖上。收到 0.15 格（37 m）保留真实岸线。
     '厦门园林博览苑': 0.15,
+    // 集美湾东侧的无名公园（OSM way 675481303）：默认容差抽成 10 点星形碎片、自交 3 处，
+    // 屏幕上就是几块乱绿。它没有名字，只能按 OSM id 覆盖；0.15 格 → 43 点、自交 0。
+    'osm:w675481303': 0.15,
   },
   minRingPoints: 4,
   minRingAreaKm2: 0.02,                 // 闭合环面积阈值（≈0.32 格²）
@@ -830,7 +833,10 @@ function build() {
 
   // 简化容差查表：按名称覆盖优先（绝对值），否则回落到图层默认容差
   const simpHits = new Map();                        // name → { tol, verts }，统计用
-  function simpTolFor(name, key) {
+  function simpTolFor(name, key, el) {
+    // 无名要素按 OSM id 覆盖（键法 'osm:w675481303' / 'osm:r2326042'），与按名称覆盖同一优先级
+    const byId = el && CFG.simplifyByName ? CFG.simplifyByName['osm:' + el.type[0] + el.id] : undefined;
+    if (typeof byId === 'number' && byId > 0) return byId;
     const byName = CFG.simplifyByName ? CFG.simplifyByName[name] : undefined;
     if (typeof byName === 'number' && byName > 0) return byName;
     return CFG.simplify[key || 'poly'];
@@ -843,7 +849,7 @@ function build() {
     const rings = elementRings(el);
     if (!rings) return;
     const name = normName(el.tags);
-    const tol = simpTolFor(name, 'poly');
+    const tol = simpTolFor(name, 'poly', el);
     const outer = [];
     for (const r of rings.outer) {
       const g = toGrid(r);

@@ -195,7 +195,12 @@
       if (this.regions[this.region[c]].scenic) { if (this.lu[c] === LU.WATER) { this.plan[c] = LU.HILL; this.lu[c] = LU.HILL; fresh.add(c); } continue; }
       if (this.plan[c] === LU.WATER) this.plan[c] = this.planFor(c);
       // 读档时（keepLu）用地已恢复，通常不会再有“陆地上的水域用地”；若填海年份在新版数据中提前，这里同样补成陆地
-      if (this.lu[c] === LU.WATER) { this.lu[c] = LU.RURAL; fresh.add(c); }
+      if (this.lu[c] === LU.WATER) {
+        this.lu[c] = LU.RURAL; fresh.add(c);
+        // 与 buildTerrain 同一判据（city.js:69）：新成陆格若落在公园/整体绿地范围内，按公园算。
+        // 否则园博苑主岛 2006 年成陆后只是普通农田，屏幕上那块绿就没了；五缘湾/观音山同理。
+        if (this.parkCov && (this.parkCov[c] >= 0.45 || this.regions[this.region[c]].park)) { this.plan[c] = LU.PARK; this.lu[c] = LU.PARK; this.isPark[c] = 1; }
+      }
     }
     // 已落成地标场地内刚成陆的格同样受保护（不会变成普通农田再被开发）
     if (fresh.size) for (let k = 0; k < D.landmarks.length; k++) if (this.landmarkOn[k]) this.protectLandmark(k, fresh);
