@@ -372,12 +372,22 @@
     for (const r of e.ledger.concat([e.cur])) for (const k of ['bond', 'interest', 'principal', 'penalty', 'capexUse']) if (r[k] == null) r[k] = 0;
     return e;
   };
-  // 票制统一为全网单一票价；旧存档的里程计价按起步价换算
+  // 票制：flat（全网统一票价）或 distance（按里程：起步价含 freeKm，之后每 stepKm 加 stepYuan）。
+  // 旧存档里的 f.base 是早年里程计价的起步价字段，按起步价换算成 flat。
   Economy.normFare = function (f) {
-    const R = CFG.fareRange;
-    let v = f ? (f.mode === 'flat' ? f.flat : f.base) : CFG.fareDefault.flat;
-    if (!isFinite(v)) v = CFG.fareDefault.flat;
-    return { mode: 'flat', flat: U.clamp(Math.round(v / R.step) * R.step, R.min, R.max) };
+    const R = CFG.fareRange, D = CFG.fareDefault || {};
+    const pos = function (v, d) { v = +v; return isFinite(v) && v > 0 ? v : d; };
+    const priceOf = function (v) { v = +v; if (!isFinite(v)) v = D.flat; return U.clamp(Math.round(v / R.step) * R.step, R.min, R.max); };
+    if (f && f.mode === 'distance') {
+      return {
+        mode: 'distance',
+        flat: priceOf(f.flat != null ? f.flat : f.base),
+        freeKm: Math.max(0, pos(f.freeKm != null ? f.freeKm : D.freeKm, 4)),
+        stepKm: pos(f.stepKm != null ? f.stepKm : D.stepKm, 4),
+        stepYuan: pos(f.stepYuan != null ? f.stepYuan : D.stepYuan, 0.5),
+      };
+    }
+    return { mode: 'flat', flat: priceOf(f ? (f.mode === 'flat' ? f.flat : f.base) : D.flat) };
   };
   // 票价对满意度的影响（与月度满意度计算同一公式）
   Economy.fareSatEffect = function (fare, year) {

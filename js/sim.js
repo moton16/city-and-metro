@@ -103,7 +103,7 @@
     const odStart = K.odStart, odDest = K.odDest, t0 = K.t0, t1 = K.t1, t2 = K.t2, t3 = K.t3, t4 = K.t4, t5 = K.t5;
     const co = K.co, cr = K.cr, cO = K.cO, cR = K.cR, facW = K.facW, facWe = K.facWe, odOk = K.odOk;
     const hostZ = K.hostZ, nx = K.nx, ny = K.ny, skT = K.skT, skK = K.skK, kmPerCell = K.kmPerCell;
-    const cpk = K.cpk, park = K.park, vot = K.vot, carAccess = K.carAccess, walkW = K.walkW, occ = K.occ, theta = K.theta, fareFlat = K.fareFlat;
+    const cpk = K.cpk, park = K.park, vot = K.vot, carAccess = K.carAccess, walkW = K.walkW, occ = K.occ, theta = K.theta, fareFlat = K.fareFlat, fareTab = K.fareTab;
     const acc = K.acc, accOk = K.accOk, zCov = acc ? acc.zCov : null, zl = acc ? acc.zl : null, choices = K.choices;
     const gtS = K.gtS, tmS = K.tmS, kmS = K.kmS, DS = K.DS, perMin = K.perMin, capSh = K.capSh, capLz = K.capLz;
     const carDem = K.carDem, hasCar = K.hasCar, S = K.S, pT = K.pT, pM = K.pM;
@@ -155,7 +155,8 @@
             if (cached === -2) choices[pair] = winner;
             if (bs >= 0) {
               mKm = kmS[bs * N + bt];
-              fare = fareFlat;
+              // 票价：flat 用统一价；distance 按本段乘车里程查表（0–100 km，0.5 km 一档，向上取整不低估）
+              fare = fareTab ? fareTab[mKm < 100 ? ((mKm * 2 + 1) | 0) : 200] : fareFlat;
               const gtM = best + fare / vot * 60;
               pMc = 1 / (1 + Math.exp(theta * (gtM - gtCar)));
               q = fo * fd * pMc;
@@ -409,6 +410,19 @@
   };
   // 全网统一票价：与乘车里程无关，换乘不另收费
   Model.prototype.fareFor = function () { return this.fare.flat; };
+  // 里程计价表：0–100 km 每 0.5 km 一档；flat 模式返回 null（走原来的统一票价）
+  Model.prototype.fareTable = function () {
+    const F = this.fare;
+    if (!F || F.mode !== 'distance' || !(F.stepKm > 0)) return null;
+    const tab = new Float32Array(201), base = F.flat, free = F.freeKm || 0, sk = F.stepKm, sy = F.stepYuan || 0;
+    for (let i = 0; i < 201; i++) { const km = i / 2; tab[i] = base + (km > free ? Math.ceil((km - free) / sk) * sy : 0); }
+    return tab;
+  };
+  // 票价缓存键：模式或任何参数变化都要重算
+  Model.prototype.fareKey = function () {
+    const F = this.fare || {};
+    return (F.mode || 'flat') + ':' + F.flat + ':' + (F.freeKm || 0) + ':' + (F.stepKm || 0) + ':' + (F.stepYuan || 0);
+  };
 
   // ---------------- 重要设施节点 ----------------
   // 运营中的重要设施作为独立的目的地节点（编号 Z + k）：位置、场地格与步行接驳单独计算；道路行程按所在小区计算
@@ -942,6 +956,7 @@
     const acc = hasMetro ? net.acc : null;
     const accOk = acc && acc.NZ === NZ && acc.facKey === fn.key;   // 接驳表与设施节点一致（城市刷新与网络同步之间的过渡状态下只用小区部分）
     const kmPerCell = CFG.CELL_M / 1000;
+    const fareTab = this.fareTable();
     P.desTot.fill(0); P.desMetro.fill(0); P.zTrips.fill(0); P.zMetro.fill(0); P.zAccess.fill(0);
     P.zDest.fill(0); P.zDestM.fill(0); P.fIn.fill(0); P.fInM.fill(0); P.fOut.fill(0); P.fOutM.fill(0); P.fP.fill(0);
     const BW = this.BW, ZW = this.ZW;
@@ -958,7 +973,7 @@
     const K = { Z: Z, NZ: NZ, N: N, B: this.B, odStart: od.start, odDest: od.dest, t0: t[0], t1: t[1], t2: t[2], t3: t[3], t4: t[4], t5: t[5],
       co: co, cr: cr, cO: new Float64Array(NPK), cR: new Float64Array(NPK), facW: facW, facWe: facWe, odOk: od.F === F && od.key === fn.key,
       hostZ: hostZ, nx: nx, ny: ny, skT: skT, skK: skK, kmPerCell: kmPerCell,
-      cpk: prm.cpk, park: prm.park, vot: prm.vot, carAccess: prm.carAccess, walkW: prm.walkW, occ: prm.occ, theta: prm.theta, fareFlat: this.fareFor(0),
+      cpk: prm.cpk, park: prm.park, vot: prm.vot, carAccess: prm.carAccess, walkW: prm.walkW, occ: prm.occ, theta: prm.theta, fareFlat: fareTab ? 0 : this.fare.flat, fareTab: fareTab,
       acc: acc, accOk: !!accOk, choices: choices, gtS: store ? store.gt : null, tmS: store ? store.tm : null, kmS: store ? store.km : null, DS: store ? store.D : null,
       perMin: IND.perMin, capSh: IND.cap.sh, capLz: IND.cap.lz,
       carDem: carDem, hasCar: hasCar, S: S, pT: pT, pM: pM, zTrips: P.zTrips, zMetro: P.zMetro, zAccess: P.zAccess, zJ: this.zJobs, blocks: blocks, desTot: P.desTot, desMetro: P.desMetro,
@@ -1083,7 +1098,7 @@
       // unchanged cycles. Explicit solves and all input changes still run fully.
       if (this.quietCycles >= 2) {
         this.settled = true;
-        this.settledAt = { year: this.year, fare: this.fare.flat, city: this.city.version, road: this.city.roadVersion, net: this.net, od: this.od };
+        this.settledAt = { year: this.year, fare: this.fareKey(), city: this.city.version, road: this.city.roadVersion, net: this.net, od: this.od };
         yield;
       }
     }
@@ -1101,7 +1116,7 @@
     }
     if (this.settled) {
       const at = this.settledAt;
-      if (at.year === this.year && at.fare === this.fare.flat && at.city === this.city.version && at.road === this.city.roadVersion && at.net === this.net && at.od === this.od) return;
+      if (at.year === this.year && at.fare === this.fareKey() && at.city === this.city.version && at.road === this.city.roadVersion && at.net === this.net && at.od === this.od) return;
       this.wake();
     }
     if (!this.gen) this.gen = this.liveLoop();

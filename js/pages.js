@@ -98,7 +98,9 @@
       }, true));
     }
     const c = res.conditions;
-    const fare = '全网统一票价 ' + c.fare.flat + ' ' + CFG.money.unit + '/次';
+    const fare = (c.fare && c.fare.mode === 'distance')
+      ? '按里程计价，' + UI.fareDesc(c.fare)
+      : '全网统一票价 ' + c.fare.flat + ' ' + CFG.money.unit + '/次';
     wrap.appendChild(this.sec('pr-cond', '预测条件与说明', '', function () {
       return h('div', { class: 'note' }, '比较对象：当前正式网络 vs 草案网络；城市状态：' + c.y + '年' + c.m + '月（相同人口、岗位、设施与出行需求）；时间范围：典型工作日与典型周末各一天（早高峰、平峰、晚高峰、夜间），日均为周平均（5 个工作日 + 2 个周末日）；票价：' + fare + '；运力：系统按预测客流自动调整。预测仅供参考，不扣费、不改变正式客流；投运后的实际结果由模拟产生，并在车站与线路详情中单独显示。');
     }));
@@ -817,7 +819,7 @@
         h('div', { class: 'fg-h' }, CM.icon('bank', 16), h('b', null, '下月拨款预计'), h('span', { class: 'grow' }), h('b', { class: 'num' }, U.fmtMoney(E.grantFor(ny, nm))), CM.icon('chev', 14)),
         this.grantChain(ny, nm, true)));
     }
-    el.appendChild(this.sec('fi-fare', '票价', UI.fmtFare(E.fare.flat), function () { return self.fareEditor(); }, true, 'ticket'));
+    el.appendChild(this.sec('fi-fare', '票价', UI.fareDesc(E.fare), function () { return self.fareEditor(); }, true, 'ticket'));
   };
   // 经济摘要卡：最近一年的 GDP 与增速、经济环境、交通对经济的影响
   UI.prototype.econCard = function (mv, onOpen) {
@@ -1150,21 +1152,30 @@
   };
   // 票价：全网统一票价，单个滑块。拖动时更新金额与影响估算，松手后应用并重新计算客流
   UI.fmtFare = function (v) { return CFG.money.sym + (v % 1 ? (v * 10 % 1 ? v.toFixed(2) : v.toFixed(1)) : String(v)) + '/次'; };
+  // 票制描述：flat 显示统一价；distance 显示起步价与里程费
+  UI.fareDesc = function (F) {
+    F = F || {};
+    const sym = CFG.money.sym, u = CFG.money.unit;
+    if (F.mode !== 'distance') return '全网统一 ' + sym + F.flat + u + '/次';
+    return '起步 ' + sym + F.flat + u + '（含 ' + (F.freeKm || 0) + ' km）· 之后每 ' + (F.stepKm || 0) + ' km 加 ' + sym + (F.stepYuan || 0) + u;
+  };
   UI.prototype.fareEditor = function () {
     const g = this.g(), E = g.econ, self = this, R = CFG.fareRange;
     const box = h('div', { class: 'fare-ed' });
     const val = h('div', { class: 'fare-v' });
-    const slider = h('input', { type: 'range', min: R.min, max: R.max, step: R.step, value: E.fare.flat, 'aria-label': '全网统一票价' });
+    const slider = h('input', { type: 'range', min: R.min, max: R.max, step: R.step, value: E.fare.flat, 'aria-label': E.fare.mode === 'distance' ? '起步价' : '全网统一票价' });
     const effect = h('div');
     const vot = U.interp(CFG.choice.vot, g.clock.y);
     const show = function (v) {
-      val.textContent = UI.fmtFare(v);
+      val.textContent = (E.fare.mode === 'distance' ? '起步 ' : '') + UI.fmtFare(v);
       const d = g.model.daily || {}, riders = d.metro || 0;
-      const sat = CM.Economy.fareSatEffect(v, g.clock.y);
+      // 里程计价时滑块调的是起步价，满意度负担要按实际平均票价折算
+      const ratio = (E.fare.mode === 'distance' && d.avgFare > 0) ? d.avgFare / (E.fare.flat || 1) : 1;
+      const sat = CM.Economy.fareSatEffect(v * ratio, g.clock.y);
       effect.innerHTML = '';
       effect.appendChild(self.kv([
         ['当前日票务收入', riders > 0 ? U.fmtMoney((d.fare || 0) / 10000) + '（' + U.fmtPeople(riders) + ' 人次）' : '暂无客流'],
-        v !== E.fare.flat && riders > 0 ? ['按新票价估算', '约 ' + U.fmtMoney(riders * v / 10000) + ' / 日（未计入客流变化）'] : null,
+        v !== E.fare.flat && riders > 0 ? ['按新票价估算', '约 ' + U.fmtMoney(riders * (E.fare.mode === 'distance' ? (d.avgFare || v) * (v / (E.fare.flat || 1)) : v) / 10000) + ' / 日（未计入客流变化）'] : null,
         ['满意度影响', sat < -0.05 ? U.fmtSigned(sat, 1) + ' 分（票价负担，上限 −9）' : '无负担（票价不超过时间价值的 35%）', sat < -4 ? 'bad' : (sat < -0.05 ? 'warn' : 'good')],
       ]));
     };
@@ -1172,15 +1183,15 @@
     slider.addEventListener('change', function () {
       const v = +slider.value;
       if (v === E.fare.flat) return;
-      E.fare = { mode: 'flat', flat: v }; g.model.fare = E.fare; g.model.sinceChange = 0; g.touch();
+      E.fare = Object.assign({}, E.fare, { flat: v }); g.model.fare = E.fare; g.model.sinceChange = 0; g.touch();
       g.invalidatePrediction('票价已修改，建设预测需要按新票价重新计算');
-      g.logEvent({ tag: '经营', title: '调整票价', desc: '全网统一票价 ' + v + ' ' + CFG.money.unit + '/次' });
-      self.toast('票价已调整为 ' + UI.fmtFare(v) + '，居民出行选择正在重新计算', 'good');
+      g.logEvent({ tag: '经营', title: '调整票价', desc: UI.fareDesc(E.fare) });
+      self.toast('票价已调整为 ' + UI.fareDesc(E.fare) + '，居民出行选择正在重新计算', 'good');
       self.markUnsaved();
       show(v);
     });
     show(E.fare.flat);
-    box.append(h('div', { class: 'fare-top' }, val, h('span', { class: 'tiny muted' }, '全网统一 · 换乘不另收费')),
+    box.append(h('div', { class: 'fare-top' }, val, h('span', { class: 'tiny muted' }, (E.fare.mode === 'distance' ? '按里程计价 · 坐得越远付得越多' : '全网统一') + ' · 换乘不另收费')),
       h('div', { class: 'fare-slider' }, h('span', { class: 'tiny muted' }, CFG.money.sym + R.min), slider, h('span', { class: 'tiny muted' }, CFG.money.sym + R.max)),
       this.sec('fi-fare-fx', '票务收入与满意度影响', '', function () {
         return h('div', null, effect, h('div', { class: 'note', style: { marginTop: '6px' } }, '票价越高，乘车意愿越低、票务收入与满意度负担越高。' + g.clock.y + ' 年居民时间价值约 ' + vot.toFixed(1) + ' ' + CFG.money.unit + '/小时（估算）。松手后居民出行选择将在数秒内重新计算。'));

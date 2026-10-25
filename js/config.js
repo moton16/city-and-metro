@@ -133,7 +133,8 @@
       inflation: 0.04,
     },
 
-    // 全网统一票价（元/次，换乘不另收费）；滑块范围与步长 DEFAULT
+    // 票制。flat：全网统一票价（元/次，换乘不另收费）。distance：按里程，flat 为起步价（含 freeKm），
+    // 之后每 stepKm 公里加 stepYuan；滑块范围与步长 DEFAULT
     fareDefault: { mode: 'flat', flat: 2 },
     fareRange: { min: 0, max: 10, step: 0.5 },
 

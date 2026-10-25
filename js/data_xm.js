@@ -348,8 +348,11 @@
         demolishPerCell: 32000,
       }),
       ops: Object.assign({}, CM.CFG.ops, { carKmCost: 0.0010, stationDaily: { S: 1.6, M: 2.8, L: 4.8 } }),
-      fareDefault: { mode: 'flat', flat: 1 }, fareRange: { min: 0, max: 6, step: 0.5 },
-      // 1990 年内地城市：基础资金 20 亿元（按 1990 年 GDP 57.09 亿元的约 0.35% 估算，标 [估]）；
+      // 1990 年厦门：按里程计价。起步 1 元含 3 km，之后每 3 km 加 0.5 元（全程 7.8 km 约 2 元）。
+      // 全网单一价会让「坐 1 站」和「跨半个岛」付一样的钱，既不合理也压死票款；
+      // 里程计价下 1990 年平均票价约 1.6 元，仍低于当时居民承受上限（时间价值 0.35 倍）。
+      fareDefault: { mode: 'distance', flat: 1, freeKm: 3, stepKm: 3, stepYuan: 0.5 },
+      fareRange: { min: 0, max: 6, step: 0.5 },
       // 地方债基准 8.60%、城投债 +2.00 pt（10.60%）、6 年期 +0.40 pt（与广州 1990 同档，厦门信用略优）
       economy: Object.assign({}, CM.CFG.economy, {
         // 初始资金：本图 34,112 格（广州 11,520 格的 2.96 倍），岛内线网要从 0 起步，且第一次跨海就要 35 亿量级，
