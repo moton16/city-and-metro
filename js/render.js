@@ -19,7 +19,7 @@
       ground: {
         land: '#edf2f6', farm: ['#e6efe5', '#e9f1e8', '#e3ece3'], hill: ['#b4ccd0', '#adc7cc', '#bcd2d5'], park: '#d2e7cc',
         urban: { 1: '#f0f4f8', 2: '#f0f4f8', 3: '#f0f3f7', 4: '#f0f4f8', 6: '#f0f4f7', 10: '#eef3f2', 0: '#f0f4f8' },
-        airport: '#e7ecf1', runway: '#c8d2dd', apron: '#dbe2ea', water: '#94c0e3', bank: '#bcd8ee', glint: 'rgba(255,255,255,0.4)', wood: 'rgba(170,205,180,0.42)', parkEdge: 'rgba(130,180,130,0.3)',
+        airport: '#e7ecf1', runway: '#c8d2dd', apron: '#dbe2ea', water: '#94c0e3', bank: '#bcd8ee', future: '#94c0e3', futureEdge: 'rgba(88,132,178,0.5)', glint: 'rgba(255,255,255,0.4)', wood: 'rgba(170,205,180,0.42)', parkEdge: 'rgba(130,180,130,0.3)',
       },
       pal: {
         1: [[216, 226, 239], [208, 220, 236], [224, 231, 242], [202, 215, 233]],
@@ -47,7 +47,7 @@
       ground: {
         land: '#192333', farm: ['#1a2633', '#192431', '#1c2836'], hill: ['#21393d', '#1f3639', '#253f42'], park: '#1c3530',
         urban: { 1: '#1f2a3a', 2: '#1f2a3a', 3: '#1f2939', 4: '#1f2a3a', 6: '#1f2a39', 10: '#202c33', 0: '#1f2a3a' },
-        airport: '#212b38', runway: '#364254', apron: '#29333f', water: '#1c3f61', bank: '#284f73', glint: 'rgba(140,190,240,0.18)', wood: 'rgba(36,72,62,0.55)', parkEdge: 'rgba(70,130,100,0.35)',
+        airport: '#212b38', runway: '#364254', apron: '#29333f', water: '#1c3f61', bank: '#284f73', future: '#1c3f61', futureEdge: 'rgba(126,172,216,0.32)', glint: 'rgba(140,190,240,0.18)', wood: 'rgba(36,72,62,0.55)', parkEdge: 'rgba(70,130,100,0.35)',
       },
       pal: {
         1: [[60, 76, 100], [56, 72, 96], [66, 80, 104], [58, 74, 100]],
@@ -613,23 +613,34 @@
     const wpth = new Path2D();
     for (const f of Geo.water) if (inBox(f.bbox, 0.5)) wpth.addPath(this.featurePath(f, true));
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    // 历史海岸线：尚未填海成陆的区域仍画成水面（单独以 nonzero 填充，避免与海域多边形的奇偶规则抵消）
+    // 历史海岸线：尚未填海成陆的区域另画——1990 年这里是海，将来才成陆。
+    // 不能并进 wpth：否则每个填海块都会被描一圈亮色岸线、再整块填成海色，
+    // 看上去就是「海面上凭空多出一块正蓝色矩形」，还会把岸线切成直角。
     const rpth = new Path2D(); let anyRc = false;
-    for (const f of city.reclaimFeats ? city.reclaimFeats(true) : []) if (inBox(f.bbox, 0.5)) { const path = this.featurePath(f, true); rpth.addPath(path); wpth.addPath(path); anyRc = true; }
+    for (const f of city.reclaimFeats ? city.reclaimFeats(true) : []) if (inBox(f.bbox, 0.5)) { rpth.addPath(this.featurePath(f, true)); anyRc = true; }
     ctx.strokeStyle = GROUND.bank; ctx.lineWidth = Math.max(0.05, px * 2.4); ctx.stroke(wpth);
     ctx.fillStyle = GROUND.water; ctx.fill(wpth, 'evenodd');
-    if (anyRc) ctx.fill(rpth, 'nonzero');
-    // 水面波纹（近景）
+    if (anyRc) {
+      // 与海面同色：1990 年这片本来就是海，不该出现一块异色的「蓝方块」。
+      // 只留一条虚线表示「规划岸线」，告诉玩家这里以后会成陆。
+      ctx.fillStyle = GROUND.future; ctx.fill(rpth, 'nonzero');
+      ctx.strokeStyle = GROUND.futureEdge; ctx.lineWidth = Math.max(0.04, px * 1.6);
+      ctx.setLineDash([0.22, 0.16]); ctx.stroke(rpth); ctx.setLineDash([]);
+    }
+    // 水面波纹（近景）：真实水面与待填海都画，否则待填海会成为一块没有波纹的平色补丁
     if (lvl >= 16) {
-      ctx.save(); ctx.clip(wpth, 'evenodd');
-      ctx.strokeStyle = GROUND.glint; ctx.lineWidth = px * 1.2;
-      ctx.beginPath();
-      for (let j = Math.floor(Y0); j < Y1; j += 0.7) for (let i = Math.floor(X0); i < X1; i += 1.3) {
-        const hx = U.hash2(Math.round(i * 10), Math.round(j * 10), 17); if (hx > 0.35) continue;
-        const x = i + hx * 1.5, y = j + U.hash2(Math.round(i * 10), Math.round(j * 10), 18) * 0.5;
-        ctx.moveTo(x, y); ctx.lineTo(x + 0.35, y - 0.06);
-      }
-      ctx.stroke(); ctx.restore();
+      const glint = function () {
+        ctx.strokeStyle = GROUND.glint; ctx.lineWidth = px * 1.2;
+        ctx.beginPath();
+        for (let j = Math.floor(Y0); j < Y1; j += 0.7) for (let i = Math.floor(X0); i < X1; i += 1.3) {
+          const hx = U.hash2(Math.round(i * 10), Math.round(j * 10), 17); if (hx > 0.35) continue;
+          const x = i + hx * 1.5, y = j + U.hash2(Math.round(i * 10), Math.round(j * 10), 18) * 0.5;
+          ctx.moveTo(x, y); ctx.lineTo(x + 0.35, y - 0.06);
+        }
+        ctx.stroke();
+      };
+      ctx.save(); ctx.clip(wpth, 'evenodd'); glint(); ctx.restore();
+      if (anyRc) { ctx.save(); ctx.clip(rpth, 'nonzero'); glint(); ctx.restore(); }
     }
     for (const l of Geo.waterLines) {
       if (!inBox(l.bbox, 0.5)) continue;
@@ -727,8 +738,12 @@
     ctx.lineWidth = Math.max(0.12, px * 3); ctx.stroke(P4);
     if (tunnels.length) { ctx.strokeStyle = RD.tunnel; ctx.lineWidth = Math.max(0.05, px * 1.6); ctx.setLineDash([0.12, 0.08]); ctx.stroke(PT); ctx.setLineDash([]); }
     if (lvl >= 32 && lay[4].length) { ctx.strokeStyle = RD.expLine; ctx.lineWidth = px; ctx.stroke(P4); }
-    // 尚未填海成陆的区域盖回水面：伸向新土地的道路、桥梁与铁路在成陆前不显示
-    if (anyRc) { ctx.fillStyle = GROUND.water; ctx.fill(rpth, 'nonzero'); }
+    // 尚未填海成陆的区域盖回海面同色：伸向新土地的道路、桥梁与铁路在成陆前不显示
+    if (anyRc) {
+      ctx.fillStyle = GROUND.future; ctx.fill(rpth, 'nonzero');
+      ctx.strokeStyle = GROUND.futureEdge; ctx.lineWidth = Math.max(0.04, px * 1.6);
+      ctx.setLineDash([0.22, 0.16]); ctx.stroke(rpth); ctx.setLineDash([]);
+    }
     // 地标占地（2D）
     for (let k = 0; k < D.landmarks.length; k++) {
       if (!city.landmarkOn[k]) continue;
@@ -741,19 +756,21 @@
     for (let j = j0; j < j1; j++) for (let i = i0; i < i1; i++) {
       const c = j * W + i;
       const rg = city.regions[city.region[c]];
-      if (city.regionOpen[city.region[c]] || rg.scenic || city.lu[c] === LU.WATER) continue;
+      // 不再跳过水面格：让未开放阴影一直画到水里，再由下面的 wpth/rpth 裁出真实岸线，
+      // 否则沿岸只能按 250 m 网格台阶切，看着像被方块啃过。
+      if (city.regionOpen[city.region[c]] || rg.scenic) continue;
       lock.rect(i - px, j - px, 1 + 2 * px, 1 + 2 * px); anyLock = true;
     }
     if (anyLock) {
       ctx.save();
       ctx.clip(lock);
       // 只覆盖陆地：沿岸的格按真实岸线裁掉水面，避免锯齿状的斜线压在江面上
-      const land = new Path2D(); land.rect(X0 - 1, Y0 - 1, X1 - X0 + 2, Y1 - Y0 + 2); land.addPath(wpth);
+      const land = new Path2D(); land.rect(X0 - 1, Y0 - 1, X1 - X0 + 2, Y1 - Y0 + 2); land.addPath(wpth); if (anyRc) land.addPath(rpth);
       ctx.clip(land, 'evenodd');
       ctx.fillStyle = TH.lockFill; ctx.fillRect(X0, Y0, X1 - X0, Y1 - Y0);
       ctx.strokeStyle = TH.lockHatch; ctx.lineWidth = Math.max(px, 0.04);
       ctx.beginPath();
-      for (let k = Math.floor((X0 + Y0) / 0.6) * 0.6; k < X1 + Y1; k += 0.6) { ctx.moveTo(k - Y0, Y0); ctx.lineTo(k - Y1, Y1); }
+      for (let k = Math.floor((X0 + Y0) / 0.5) * 0.5; k < X1 + Y1; k += 0.5) { ctx.moveTo(k - Y0, Y0); ctx.lineTo(k - Y1, Y1); }
       ctx.stroke();
       ctx.restore();
     }
