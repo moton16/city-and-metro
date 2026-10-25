@@ -182,8 +182,24 @@
     return out;
   };
   // 在画布上描出要素路径
-  Geo.tracePoly = function (ctx, f) {
-    for (const r of f.rings) { const p = r.p; ctx.moveTo(p[0], p[1]); for (let k = 2; k < p.length; k += 2) ctx.lineTo(p[k], p[k + 1]); ctx.lineTo(p[0], p[1]); }
+  // 环的有向面积（画布坐标，y 向下）
+  Geo.ringArea = function (p) {
+    let s = 0; const n = p.length / 2;
+    for (let k = 0; k < n; k++) { const j = (k + 1) % n; s += p[2 * k] * p[2 * j + 1] - p[2 * j] * p[2 * k + 1]; }
+    return s / 2;
+  };
+  // union=true：外环统一一个绕向、内环反向，配合 nonzero 填充得到「并集 + 洞」，
+  // 多个水面要素重叠时不会互相抵消（evenodd 会在重叠处挖出白洞）。
+  Geo.tracePoly = function (ctx, f, union) {
+    for (const r of f.rings) {
+      const p = r.p, n = p.length / 2;
+      let rev = false;
+      if (union) { const a = Geo.ringArea(p); rev = r.outer ? a < 0 : a > 0; }
+      ctx.moveTo(p[0], p[1]);
+      if (!rev) { for (let k = 1; k < n; k++) ctx.lineTo(p[2 * k], p[2 * k + 1]); }
+      else { for (let k = n - 1; k >= 1; k--) ctx.lineTo(p[2 * k], p[2 * k + 1]); }
+      ctx.closePath();
+    }
   };
   Geo.traceLine = function (ctx, p) { ctx.moveTo(p[0], p[1]); for (let k = 2; k < p.length; k += 2) ctx.lineTo(p[k], p[k + 1]); };
 })(window.CM);

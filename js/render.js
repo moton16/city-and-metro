@@ -94,6 +94,7 @@
     this.segDecos = new WeakMap();
     this.heatLayers = new Map();
     this.geoPaths = new WeakMap();
+    this.waterPaths = new WeakMap();   // 水面专用：环绕向已归一（外正内负），配合 nonzero 取并集
   }
   CM.Renderer = Renderer;
 
@@ -123,6 +124,12 @@
   Renderer.prototype.featurePath = function (feature, polygon) {
     let p = this.geoPaths.get(feature);
     if (!p) { p = new Path2D(); if (polygon) CM.Geo.tracePoly(p, feature); else CM.Geo.traceLine(p, feature.p); this.geoPaths.set(feature, p); }
+    return p;
+  };
+  // 水面专用路径：环绕向归一后缓存，多个水面要素重叠也不会被 evenodd 互相抵消挖出白洞
+  Renderer.prototype.waterPath = function (feature) {
+    let p = this.waterPaths.get(feature);
+    if (!p) { p = new Path2D(); CM.Geo.tracePoly(p, feature, true); this.waterPaths.set(feature, p); }
     return p;
   };
   Renderer.prototype.clearImages = function () {
@@ -315,7 +322,7 @@
     this.clearImages(); this.overview = null; this.overviewJob = null; this.overviewStale = true; this.heat = null; this.heatKey = '';
     this.heatLayers.clear(); this.segScreens = new WeakMap(); this.segDecos = new WeakMap(); this.metroOrder = null;
     this.roadLabelGeom = new WeakMap(); this.textWidths.clear(); this._cgBmp = null;
-    this.geoPaths = new WeakMap(); this.labelImage = null;
+    this.geoPaths = new WeakMap(); this.waterPaths = new WeakMap(); this.labelImage = null;
     this._hd = null; this._hdCity = null; this._lmc = null; this._lmcCity = null;
     this.lastFrameMs = null; this.detail = { tier: 0, ema: 8, busy: 0, calm: 0 };
     this.roadVer = g ? g.city.roadVersion : -1;
@@ -611,7 +618,7 @@
     }
     // 水系（真实岸线）
     const wpth = new Path2D();
-    for (const f of Geo.water) if (inBox(f.bbox, 0.5)) wpth.addPath(this.featurePath(f, true));
+    for (const f of Geo.water) if (inBox(f.bbox, 0.5)) wpth.addPath(this.waterPath(f));
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     // 历史海岸线：尚未填海成陆的区域另画——1990 年这里是海，将来才成陆。
     // 不能并进 wpth：否则每个填海块都会被描一圈亮色岸线、再整块填成海色，
@@ -619,7 +626,7 @@
     const rpth = new Path2D(); let anyRc = false;
     for (const f of city.reclaimFeats ? city.reclaimFeats(true) : []) if (inBox(f.bbox, 0.5)) { rpth.addPath(this.featurePath(f, true)); anyRc = true; }
     ctx.strokeStyle = GROUND.bank; ctx.lineWidth = Math.max(0.05, px * 2.4); ctx.stroke(wpth);
-    ctx.fillStyle = GROUND.water; ctx.fill(wpth, 'evenodd');
+    ctx.fillStyle = GROUND.water; ctx.fill(wpth);
     if (anyRc) {
       // 与海面同色：1990 年这片本来就是海，不该出现一块异色的「蓝方块」。
       // 只留一条虚线表示「规划岸线」，告诉玩家这里以后会成陆。
@@ -639,7 +646,7 @@
         }
         ctx.stroke();
       };
-      ctx.save(); ctx.clip(wpth, 'evenodd'); glint(); ctx.restore();
+      ctx.save(); ctx.clip(wpth); glint(); ctx.restore();
       if (anyRc) { ctx.save(); ctx.clip(rpth, 'nonzero'); glint(); ctx.restore(); }
     }
     for (const l of Geo.waterLines) {
