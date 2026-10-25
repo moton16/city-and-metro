@@ -447,6 +447,18 @@
     return this.fn;
   };
   Model.prototype.facIndex = function (id) { return this.fn ? this.fn.ids.indexOf(id) : -1; };
+  // 该设施的场地里有没有「能设站」的格：区域已开放、非风景区、非水面/山体。
+  // 鼓浪屿这类 open:null 的地方永远是 false —— 不能给它派「地铁接驳」任务，也不能说它「无地铁接驳」。
+  Model.prototype.facCanSite = function (k) {
+    if (!this.fn || k < 0 || k >= this.fn.F) return false;
+    const cs = this.fn.cells[k], city = this.city;
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i]; if (c < 0) continue;
+      const rg = city.region[c];
+      if (city.regionOpen[rg] && !city.regions[rg].scenic && city.lu[c] !== 7 && city.lu[c] !== 8) return true;
+    }
+    return false;
+  };
 
   // ---------------- 小区与需求 ----------------
   // 小区汇总：人口、岗位；普通设施的分目的吸引量（上学、购物、医疗、休闲，按用地与人口估算）；枢纽接驳的城市端权重。

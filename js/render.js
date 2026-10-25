@@ -2863,7 +2863,10 @@
       const it = list[q];
       if (gap && (it.cov >= 0.3 || it.v < 1500)) continue;
       const p = this.P(it.f.x, it.f.y, 0, tmp), r = (4 + 16 * Math.sqrt(it.v / fm.vmax)) * zk;
-      const name = it.f.name.replace(/（.*）/, ''), val = gap ? '无地铁接驳 · ' + U.fmtPeople(it.v) + ' 人次' : U.fmtPeople(it.v) + ' 人次 · 地铁 ' + U.fmtPct(it.share, 0);
+      // 服务缺口图层里，永久不能设站的设施（鼓浪屿这类 open:null / 风景区）标「不可设站」，
+      // 别再写「无地铁接驳」——那是在暗示玩家把地铁修过去，而那里根本不让建。
+      const mdl = this.game.model, noSite = gap && !mdl.facCanSite(mdl.facIndex(it.f.id));
+      const name = it.f.name.replace(/（.*）/, ''), val = gap ? (noSite ? '不可设站 · ' : '无地铁接驳 · ') + U.fmtPeople(it.v) + ' 人次' : U.fmtPeople(it.v) + ' 人次 · 地铁 ' + U.fmtPct(it.share, 0);
       ctx.font = '600 12px ' + FONT; const w = Math.max(ctx.measureText(name).width, ctx.measureText(val).width * 0.92) + 8;
       const b = [p.x - w / 2, p.y + r + 2, p.x + w / 2, p.y + r + 30];
       if (b[2] < 0 || b[0] > this.w || b[3] < 0 || b[1] > this.h) continue;

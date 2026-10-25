@@ -618,15 +618,18 @@
       cands.push({ type: 'recovery', target: 0.7, sustain: 3, title: '改善运营收支', desc: '连续 3 个月票款收入不低于运营费用的 70%。', months: 24, reward: 40000 * ci });
     }
     // 重要设施的地铁接驳（v1.9）：到访量较大、乘地铁比例很低的设施；口径按设施类型（见 Tasks.facBasis）
+    // 只给「附近真能设站」的设施派任务。鼓浪屿这类 open:null / 风景区 / 水面上的设施，
+    // 玩家永远建不了站，派「把地铁修到鼓浪屿」等于发一张做不到的罚单。
     if (model.facDaily && model.fn && model.net && g.compiled.stations.length) {
       let best = null;
-      for (const f of model.fn.list) {
-        if (!free('fac:' + f.id, 'facShare')) continue;
+      model.fn.list.forEach(function (f, k) {
+        if (!free('fac:' + f.id, 'facShare')) return;
+        if (!model.facCanSite(k)) return;
         const basis = Tasks.facBasis(f), r = Tasks.facShareOf(model, f, basis);
-        if (!r || r.vol < 3000 || r.share > 0.12) continue;
+        if (!r || r.vol < 3000 || r.share > 0.12) return;
         const score = r.vol * (1 - r.share);
         if (!best || score > best.score) best = { f: f, basis: basis, r: r, score: score };
-      }
+      });
       if (best) {
         const f = best.f, target = Math.round(Math.max(best.r.share + 0.12, 0.2) * 100) / 100, bn = Tasks.BASIS[best.basis];
         const what = f.T.hub ? '接驳出行' : '到访出行';
