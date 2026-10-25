@@ -422,7 +422,7 @@
     });
     for (const sr of D.simRoads || []) {
       const p = new Float32Array([].concat.apply([], sr.p));
-      groups.push({ name: sr.n, cls: sr.c, flags: 0, ways: [p], bbox: [Math.min.apply(null, sr.p.map(function (q) { return q[0]; })), Math.min.apply(null, sr.p.map(function (q) { return q[1]; })), Math.max.apply(null, sr.p.map(function (q) { return q[0]; })), Math.max.apply(null, sr.p.map(function (q) { return q[1]; }))], year: sr.y, notable: true, sim: true });
+      groups.push({ name: sr.n, cls: sr.c, flags: sr.f || 0, ways: [p], bbox: [Math.min.apply(null, sr.p.map(function (q) { return q[0]; })), Math.min.apply(null, sr.p.map(function (q) { return q[1]; })), Math.max.apply(null, sr.p.map(function (q) { return q[0]; })), Math.max.apply(null, sr.p.map(function (q) { return q[1]; }))], year: sr.y, notable: true, sim: true });
     }
     // 年份：名称表 → 跨江桥梁默认 → 所在区域开放年份
     for (const g of groups) {
