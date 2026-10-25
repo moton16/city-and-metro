@@ -39,7 +39,15 @@ const CFG = {
   grid: { cols: 3, rows: 3, overlapDeg: 0.01 },   // Overpass 分块（块间重叠，最后按 OSM id 去重）
 
   // 简化：单位 = 1 个编码单位 = 1/64 格 ≈ 3.9 m
-  simplify: { poly: 1.0, sea: 0.1, line: 1.0, street: 2.0, rail: 1.0 },   // 单位：格（sea 0.1 格 = 25 m，海岸线要保形）
+  // 路网（road/street/rail）容差 0.15 格 = 37.5 m：配合下方 chain 串接后，2 点直线占比与最长边大幅下降
+  // （不串接时 0.15 格只是把「每段各自抽直」，接缝照样错位；串接 + 0.15 才是治本组合）
+  simplify: { poly: 1.0, sea: 0.1, line: 1.0, road: 0.15, street: 0.15, rail: 0.15 },   // 单位：格（sea 0.1 格 = 25 m，海岸线要保形）
+
+  // 路网串接：OSM 里一条路常被切成几十段（实测中位跨度 0.57 格 ≈ 143 m，1070/3970 条只有 2 个节点）。
+  // 逐段独立 DP + 独立量化 → 短片段本就是直线、接缝在量化后互相错位，细看就是「小路扭曲错位」。
+  // 治本：先按 (路名|等级|标记) 分组，把首尾端点量化相等的片段接成连续折线，再整体 DP + 量化。
+  chain: { roads: true, streets: true, rail: true, maxSegsPerChain: 4000 },
+  includePath: true,                    // 支路层是否收 footway / path / pedestrian / steps / track
   // 按名称覆盖简化容差（单位：格，绝对值；不参与下方预算轮次的整体放大，保证重跑结果恒定）
   // 背景：poly 1.0 格 = 250 m，对 1–2 km 的小水体过粗——Douglas–Peucker 会把整片湖抽成 4–6 个点的
   // 折线块（湖边水库原本只剩 6 点：一个三角 + 一条细长尾巴，完全没有湖岸弯曲）。
@@ -138,6 +146,10 @@ const has = (k) => ARGV.includes('--' + k);
 const opt = (k, d) => { const a = ARGV.find((x) => x.startsWith('--' + k + '=')); return a ? a.slice(k.length + 3) : d; };
 CFG.rawDir = opt('raw', CFG.rawDir);
 CFG.outFile = opt('out', CFG.outFile);
+if (has('no-path')) CFG.includePath = false;         // --no-path：支路层不收 footway / path / pedestrian / steps / track
+// --patch-out=<json>：只重出 roads / streets / rail 三层并写成 JSON 补丁（不碰 js/geo_xm.js）。
+// 用途：全量重建不可复现（本地原始缓存不全）时，用新几何按行替换现有 geo 文件的这三层。
+const patchOut = opt('patch-out', '');
 
 const P = CFG.proj;
 const BB = {
@@ -387,6 +399,94 @@ function dp(pts, tol) {
   for (let i = 0; i < n; i++) if (keep[i]) out.push(pts[i]);
   return out;
 }
+// ── 路网串接 ────────────────────────────────────────────────────────────────
+// 端点键：量化到 1/64 格后精确相等才算同一个节点（OSM 共享节点投影后本来就完全相同）
+const endKey = (p) => qz(p[0]) + ',' + qz(p[1]);
+// 把首尾相接的折线片段接成尽量长的连续折线（交叉口处自然断开：某端点邻接数 ≠ 1 就停）
+function chainGroup(segs) {
+  const n = segs.length;
+  const A = new Array(n), B = new Array(n);            // 每条片段的首/尾端点键
+  const adj = new Map();                               // 端点键 → 片段下标
+  const add = (k, i) => { let a = adj.get(k); if (!a) adj.set(k, a = []); a.push(i); };
+  for (let i = 0; i < n; i++) {
+    A[i] = endKey(segs[i][0]); B[i] = endKey(segs[i][segs[i].length - 1]);
+    add(A[i], i); add(B[i], i);
+  }
+  // 静态度：必须用「原始邻接数」判断岔口，不能用「还没用过的候选数」——
+  // 后者会随消耗变化，本来度 = 3 的岔口等其中一支被吃掉后就变成度 = 1，于是被错误地接上。
+  const deg = new Map();
+  for (const [k, a] of adj) deg.set(k, a.length);
+  const used = new Uint8Array(n);
+  const out = [];
+  // 起链顺序：先挑带「自由端」（度 = 1）的片段，保证从链的真端点起链，
+  // 否则从交叉口中间起链会把一条长路切成两半。剩下的（闭环等）再补。
+  const order = [];
+  for (let i = 0; i < n; i++) if (deg.get(A[i]) === 1 || deg.get(B[i]) === 1) order.push(i);
+  for (let i = 0; i < n; i++) order.push(i);
+  const MAXSEG = CFG.chain.maxSegsPerChain;
+  for (const i0 of order) {
+    if (used[i0]) continue;
+    used[i0] = 1;
+    // 先只收集「片段下标 + 方向」，最后一次性拼点：否则长链上反复 concat 会退化成 O(n²)
+    const pre = [], post = [];                          // { j, rev }
+    let tail = B[i0];
+    for (;;) {                                          // 向尾端延伸
+      // 度 = 2 才是「直通」：度 1 = 真端点，度 ≥3 = 交叉口，一律断开
+      const cand = deg.get(tail) === 2 ? (adj.get(tail) || []).filter((j) => !used[j]) : [];
+      if (cand.length !== 1) break;
+      const j = cand[0]; used[j] = 1;
+      const asIs = endKey(segs[j][0]) === tail;
+      post.push({ j, rev: !asIs });
+      tail = asIs ? B[j] : A[j];
+      if (post.length >= MAXSEG) break;
+    }
+    let head = A[i0];
+    for (;;) {                                          // 向首端延伸
+      const cand = deg.get(head) === 2 ? (adj.get(head) || []).filter((j) => !used[j]) : [];
+      if (cand.length !== 1) break;
+      const j = cand[0]; used[j] = 1;
+      const asIs = endKey(segs[j][segs[j].length - 1]) === head;
+      pre.push({ j, rev: !asIs });
+      head = asIs ? A[j] : B[j];
+      if (pre.length >= MAXSEG) break;
+    }
+    pre.reverse();
+    const seq = pre.concat([{ j: i0, rev: false }], post);
+    let n = 1;
+    for (const o of seq) n += segs[o.j].length - 1;      // 每个接缝省掉 1 个重复点
+    const pts = new Array(n);
+    let k = 0;
+    for (const o of seq) {
+      const s = segs[o.j];
+      // 反转后的片段形如 [末点, …, 首点]；k>0 时首元素就是接缝重复点，要跳过
+      if (o.rev) { for (let i = (k ? s.length - 2 : s.length - 1); i >= 0; i--) pts[k++] = s[i]; }
+      else { for (let i = k ? 1 : 0; i < s.length; i++) pts[k++] = s[i]; }
+    }
+    out.push(pts);
+  }
+  return out;
+}
+// 分组 → 串接 → 整体 DP。segs: [{ pts, …字段 }]，keyOf(seg) → 分组键
+function chainLayer(segs, tol, keyOf) {
+  const groups = new Map();
+  for (const s of segs) {
+    const k = keyOf(s);
+    let g = groups.get(k); if (!g) groups.set(k, g = []);
+    g.push(s);
+  }
+  const list = [];
+  let segs0 = 0;
+  for (const g of groups.values()) {
+    segs0 += g.length;
+    for (const pts of chainGroup(g.map((s) => s.pts))) {
+      const simp = dp(pts, tol);
+      if (simp.length < 2) continue;
+      list.push(Object.assign({}, g[0], { pts: simp }));
+    }
+  }
+  return { list, segs: segs0, chains: list.length, groups: groups.size };
+}
+
 // 闭合环简化：以最远点对切成两段分别 DP
 function dpRing(pts, tol) {
   const n = pts.length;
@@ -821,6 +921,9 @@ function build() {
     secondary: 2, secondary_link: 2, tertiary: 2,
   };
   const STREET_HW = new Set(['residential', 'unclassified', 'living_street', 'service', 'tertiary_link']);
+  // 步行路 / 小径：原抓取过滤漏了这几类（footway / path / pedestrian / steps / track），
+  // 城市里真实存在的小路大量挂在这几个 tag 上，漏掉会让支路网显得稀疏且断头。
+  const PATH_HW = new Set(['footway', 'path', 'pedestrian', 'steps', 'track']);
 
   // 收集 relation 成员 way，避免重复成面
   for (const el of byId.values()) {
@@ -954,19 +1057,13 @@ function build() {
         if (t.tunnel && t.tunnel !== 'no') flags |= 2;
         if (/_link$/.test(hw)) flags |= 4;
         if (t.oneway === 'yes' || t.oneway === '1' || t.oneway === 'true' || t.junction === 'roundabout') flags |= 8;
-        for (const part of clipPolyline(toGrid(c))) {
-          const simp = dp(part, CFG.simplify.line);
-          if (simp.length >= 2) roads.push({ name, cls: ROAD_CLS[hw], flags, line: simp });
-        }
+        for (const part of clipPolyline(toGrid(c))) roads.push({ name, cls: ROAD_CLS[hw], flags, pts: part });
       }
       continue;
     }
-    if (hw && STREET_HW.has(hw)) {
+    if (hw && (STREET_HW.has(hw) || (CFG.includePath && PATH_HW.has(hw)))) {
       const c = wayCoords(el);
-      if (c) for (const part of clipPolyline(toGrid(c))) {
-        const simp = dp(part, CFG.simplify.street);
-        if (simp.length >= 2) streets.push(simp);
-      }
+      if (c) for (const part of clipPolyline(toGrid(c))) streets.push({ pts: part });
       continue;
     }
     if (t.railway && /^(rail|light_rail|highspeed)$/.test(t.railway)) {
@@ -980,10 +1077,7 @@ function build() {
         let year = 0;
         const m = /^(\d{4})/.exec(t.start_date || t.opening_date || '');
         if (m) year = +m[1];
-        for (const part of clipPolyline(toGrid(c))) {
-          const simp = dp(part, CFG.simplify.rail);
-          if (simp.length >= 2) rail.push({ name, flags, line: simp, year });
-        }
+        for (const part of clipPolyline(toGrid(c))) rail.push({ name, flags, year, pts: part });
       }
       continue;
     }
@@ -1011,8 +1105,34 @@ function build() {
     else if (t.landuse === 'forest' || t.natural === 'wood') polyFeature(el, woods);
   }
 
+  // ---- 路网：串接 → 整体 DP 简化 ----
+  // 顺序很重要：必须先按 (路名|等级|标记) 分组把首尾相接的片段接成连续折线，再整体 DP + 量化。
+  // 反过来（逐段 DP 再拼接）就是原来的做法：短片段各抽各的直线，接缝在量化后互相错位。
+  const chainStat = {};
+  {
+    const tolR = CFG.simplify.road, tolS = CFG.simplify.street, tolL = CFG.simplify.rail;
+    const flat = (arr, tol, keyOf, on) => (on
+      ? chainLayer(arr, tol, keyOf)
+      : { list: arr.map((s) => Object.assign({}, s, { pts: dp(s.pts, tol) })), segs: arr.length, chains: arr.length, groups: 0 });
+
+    const rr = flat(roads, tolR, (s) => s.name + '|' + s.cls + '|' + s.flags, CFG.chain.roads);
+    roads.length = 0;
+    for (const it of rr.list) if (it.pts.length >= 2) roads.push({ name: it.name, cls: it.cls, flags: it.flags, line: it.pts });
+    chainStat.roads = { groups: rr.groups, segs: rr.segs, chains: rr.chains, tol: tolR };
+
+    const rs = flat(streets, tolS, () => '', CFG.chain.streets);
+    streets.length = 0;
+    for (const it of rs.list) if (it.pts.length >= 2) streets.push(it.pts);   // 逐条 push：支路上万条，展开成参数会爆栈
+    chainStat.streets = { groups: rs.groups, segs: rs.segs, chains: rs.chains, tol: tolS };
+
+    const rl = flat(rail, tolL, (s) => s.name + '|' + s.flags + '|' + s.year, CFG.chain.rail);
+    rail.length = 0;
+    for (const it of rl.list) if (it.pts.length >= 2) rail.push({ name: it.name, flags: it.flags, year: it.year, line: it.pts });
+    chainStat.rail = { groups: rl.groups, segs: rl.segs, chains: rl.chains, tol: tolL };
+  }
+
   // ---- 海面 ----
-  seaRings.push(...buildSea(joinWays(coastLines), S));
+  if (!patchOut) seaRings.push(...buildSea(joinWays(coastLines), S));
 
   // ═══════════ 输出 ═══════════
   const V = {};                                   // 每层顶点数（1/64 格整数点）
@@ -1053,15 +1173,24 @@ function build() {
     const q = quantize(l.line); addV('waterLine', vcount(q));
     return [N.id(l.name), l.w, enc(q)];
   });
+  // 补丁模式下名字留字符串（补丁脚本按现有 names 表映射成序号，新名字追加到表尾），
+  // 这样 water / parks / … 等未重建图层的名称序号一个都不会被挪位。
+  // 量化后相邻点可能重合，退化成 1 点的折线画不出任何东西，直接丢掉
   const roadRows = roads.map((r) => {
-    const q = quantize(r.line); addV('roads', vcount(q));
-    return [N.id(r.name), r.cls, r.flags, enc(q)];
-  });
-  const streetStrs = streets.map((s) => { const q = quantize(s); addV('streets', vcount(q)); return enc(q); });
+    const q = quantize(r.line); if (q.length < 4) return null;
+    addV('roads', vcount(q));
+    return [patchOut ? r.name : N.id(r.name), r.cls, r.flags, enc(q)];
+  }).filter(Boolean);
+  const streetStrs = streets.map((s) => {
+    const q = quantize(s); if (q.length < 4) return null;
+    addV('streets', vcount(q)); return enc(q);
+  }).filter(Boolean);
   const railRows = rail.map((r) => {
-    const q = quantize(r.line); addV('rail', vcount(q));
-    return r.year ? [N.id(r.name), r.flags, enc(q), r.year] : [N.id(r.name), r.flags, enc(q)];
-  });
+    const q = quantize(r.line); if (q.length < 4) return null;
+    addV('rail', vcount(q));
+    const nm = patchOut ? r.name : N.id(r.name);
+    return r.year ? [nm, r.flags, enc(q), r.year] : [nm, r.flags, enc(q)];
+  }).filter(Boolean);
   const polyRows = (key) => (arr2) => arr2.map((f) => {
     const row = [N.id(f.name)];
     for (const r of f.outer) { const q = quantizeRingClosed(r); if (q.length / 2 >= CFG.minRingPoints) { row.push('o' + enc(q)); addV(key, vcount(q)); } }
@@ -1086,6 +1215,24 @@ function build() {
 
   // ═══════════ 拼文件 ═══════════
   const today = new Date().toISOString().slice(0, 10);
+  if (patchOut) {
+    // 只出 roads / streets / rail 三层：名字留字符串，由补丁脚本按现有 names 表落序号
+    const patch = {
+      generatedAt: new Date().toISOString(),
+      roads: roadRows, streets: streetStrs, rail: railRows,
+      layers: { roads: roadRows.length, streets: streetStrs.length, rail: railRows.length },
+      vertsByLayer: { roads: V.roads || 0, streets: V.streets || 0, rail: V.rail || 0 },
+      verts: totalVerts,
+      chain: chainStat,
+      simplify: { road: CFG.simplify.road, street: CFG.simplify.street, rail: CFG.simplify.rail },
+      includePath: CFG.includePath,
+      rawDir: CFG.rawDir, rawFiles: files, rawElements: byId.size, rawDupIds: dupIds,
+    };
+    const pPath = path.resolve(REPO, patchOut);
+    fs.writeFileSync(pPath, JSON.stringify(patch), 'utf8');
+    console.log(`[patch] roads ${patch.layers.roads} 条 / streets ${patch.layers.streets} 条 / rail ${patch.layers.rail} 条 → ${pPath}`);
+    return { st: patch, outPath: pPath, N, roadRows, railRows };
+  }
   const arr = (rows) => '[\n' + rows.map((r) => '      ' + '[' + r.map((v) => typeof v === 'string' ? lit(v) : v).join(',') + ']').join(',\n') + '\n    ]';
   const L = [];
   L.push(`'use strict';`);
@@ -1135,6 +1282,8 @@ function build() {
       parks: parkRows.length, reserves: reserveRows.length, woods: woodRows.length,
       admin: adminRows.length, places: placeRows.length, names: N.list.length,
     },
+    chain: chainStat,
+    includePath: CFG.includePath,
     simplify: Object.assign({}, CFG.simplify),
     simplifyByName: Object.assign({}, CFG.simplifyByName),
     simplifyByNameHits: Object.fromEntries(simpHits),
@@ -1157,7 +1306,7 @@ for (let round = 1; round <= 4; round++) {
   const over = res.st.verts > CFG.budget.maxVerts || res.st.bytes > CFG.budget.maxBytes;
   if (!over || round === 4) break;
   const k = 1.32;
-  for (const key of ['poly', 'sea', 'line', 'street', 'rail']) CFG.simplify[key] *= k;
+  for (const key of ['poly', 'sea', 'line', 'road', 'street', 'rail']) CFG.simplify[key] *= k;
   console.log(`[budget] 第 ${round} 轮超预算：字节 ${res.st.bytes} / 顶点 ${res.st.verts} → 简化容差 ×${k}，重跑`);
 }
 console.log(JSON.stringify(res.st, null, 2));
