@@ -501,6 +501,17 @@
     return { ok: false, value: 0, text: '' };
   };
 
+  // 动态任务的节奏与冷却：地图可在 data 里给 D.dynCfg 覆盖（见 data_xm.js），
+  // 缺省值 = 原来的硬编码（首条 +12 月、每 6 月一条、最多 2 条并存、冷却 24/36 与 6/18），
+  // 所以 gz / hz / tk / tp / hk / tutorial 这些没写 dynCfg 的地图行为完全不变。
+  function dynParam(key, def) {
+    const c = D.dynCfg;
+    if (!c) return def;
+    const v = c[key];
+    return v == null || !isFinite(v) ? def : +v;
+  }
+  Tasks.dynParam = dynParam;
+
   Tasks.prototype.monthly = function (g) {
     const y = g.clock.y, m = g.clock.m, ym = U.ymIndex(y, m);
     const out = [];
@@ -516,12 +527,12 @@
       this.active.push(t);
       out.push({ type: 'issued', task: t });
     }
-    // 动态任务（开局一年后开始）
-    if (!this.nextDyn) this.nextDyn = ym + 12;
-    if (!D.noDynTasks && ym >= this.nextDyn && this.active.filter(function (t) { return t.kind === 'dyn'; }).length < 2 && g.compiled.stations.length >= 0) {
+    // 动态任务（开局一年后开始；节奏见上方 dynParam，默认值与旧硬编码一致）
+    if (!this.nextDyn) this.nextDyn = ym + dynParam('firstMonths', 12);
+    if (!D.noDynTasks && ym >= this.nextDyn && this.active.filter(function (t) { return t.kind === 'dyn'; }).length < dynParam('maxActive', 2) && g.compiled.stations.length >= 0) {
       const t = this.generate(g);
       if (t) { this.active.push(t); out.push({ type: 'issued', task: t }); }
-      this.nextDyn = ym + 6;
+      this.nextDyn = ym + dynParam('everyMonths', 6);
     }
     // 评估。交通模型升级过渡期（旧存档升级当月）：未达标时不清零连续月数，到期任务顺延 1 个月，不判失败
     const transit = g.inTransition ? g.inTransition(ym) : false;
@@ -538,8 +549,8 @@
       }
       if (t.kind === 'dyn' && (complete || ym >= U.ymIndex(t.deadline[0], t.deadline[1]))) {
         this.cool = this.cool || {};
-        this.cool[t.coolKey || t.type] = ym + (complete ? 24 : 36);
-        this.cool['type:' + t.type] = ym + (complete ? 6 : 18);
+        this.cool[t.coolKey || t.type] = ym + (complete ? dynParam('coolDone', 24) : dynParam('coolFail', 36));
+        this.cool['type:' + t.type] = ym + (complete ? dynParam('typeCoolDone', 6) : dynParam('typeCoolFail', 18));
       }
       if (complete) {
         t.status = 'done'; t.closedAt = [y, m];
@@ -618,8 +629,9 @@
       cands.push({ type: 'recovery', target: 0.7, sustain: 3, title: '改善运营收支', desc: '连续 3 个月票款收入不低于运营费用的 70%。', months: 24, reward: 40000 * ci });
     }
     // 重要设施的地铁接驳（v1.9）：到访量较大、乘地铁比例很低的设施；口径按设施类型（见 Tasks.facBasis）
-    // 只给「附近真能设站」的设施派任务。鼓浪屿这类 open:null / 风景区 / 水面上的设施，
-    // 玩家永远建不了站，派「把地铁修到鼓浪屿」等于发一张做不到的罚单。
+    // 只给「附近真能设站」的设施派任务。open:null 的永久保护区（厦门只剩万石山—仙岳山）、风景区、
+    // 水面上的设施玩家永远建不了站，派「把地铁修过去」等于发一张做不到的罚单。
+    // 注：鼓浪屿已由 open:null 改为 open:2005（架空开放建设），因此岛上设施现在会正常进入候选。
     if (model.facDaily && model.fn && model.net && g.compiled.stations.length) {
       let best = null;
       model.fn.list.forEach(function (f, k) {

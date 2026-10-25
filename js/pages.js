@@ -1279,7 +1279,7 @@
     if (tab === 'active') {
       if (!ch) body.appendChild(this.callout('info', 'info', '自由建造模式：任务仅供参考，没有奖励，未完成也不会有后果。'));
       const list = T.active.slice().sort(function (a, b) { return U.ymIndex(a.deadline[0], a.deadline[1]) - U.ymIndex(b.deadline[0], b.deadline[1]); });
-      if (!list.length) body.appendChild(h('div', { class: 'tk-empty' }, CM.icon('flag', 26), h('b', null, '暂无进行中的任务'), h('span', null, (D.histTasks && D.histTasks.length ? '历史参考任务按年份发布；' : '') + (D.noDynTasks ? '本地图不生成动态任务。' : '动态任务根据拥堵、覆盖、车站拥挤与客流情况，开局一年后约每 6 个月生成。'))));
+      if (!list.length) body.appendChild(h('div', { class: 'tk-empty' }, CM.icon('flag', 26), h('b', null, '暂无进行中的任务'), h('span', null, (D.histTasks && D.histTasks.length ? '历史参考任务按年份发布；' : '') + (D.noDynTasks ? '本地图不生成动态任务。' : '动态任务根据拥堵、覆盖、车站拥挤与客流情况，开局约 ' + ((D.dynCfg && D.dynCfg.firstMonths) || 12) + ' 个月后、之后约每 ' + ((D.dynCfg && D.dynCfg.everyMonths) || 6) + ' 个月生成一条。'))));
       for (const t of list) body.appendChild(card(t));
       // 即将发布的历史任务（只显示年份与标题，不提前给出目标）
       const next = (D.histTasks || []).filter(function (x) { return !T.issued[x.id] && U.ymIndex(x.appear[0], x.appear[1]) > ym; }).slice(0, 3);

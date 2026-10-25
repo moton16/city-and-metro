@@ -40,6 +40,20 @@ const CFG = {
 
   // 简化：单位 = 1 个编码单位 = 1/64 格 ≈ 3.9 m
   simplify: { poly: 1.0, sea: 0.1, line: 1.0, street: 2.0, rail: 1.0 },   // 单位：格（sea 0.1 格 = 25 m，海岸线要保形）
+  // 按名称覆盖简化容差（单位：格，绝对值；不参与下方预算轮次的整体放大，保证重跑结果恒定）
+  // 背景：poly 1.0 格 = 250 m，对 1–2 km 的小水体过粗——Douglas–Peucker 会把整片湖抽成 4–6 个点的
+  // 折线块（湖边水库原本只剩 6 点：一个三角 + 一条细长尾巴，完全没有湖岸弯曲）。
+  // 这里对地标水体单独指定容差，取值与海岸线同档（0.1–0.15 格 = 25–37 m），顶点数落在同图层水库的 20–90 区间。
+  // 只收「玩家视野内、且原始 OSM 有 30 点以上」的水体；金门侧与同名不同体的（慈湖/水头商港/石兜/九溪/西溪/西湖）待人工确认后再加。
+  simplifyByName: {
+    '湖边水库': 0.1,
+    '五缘湾': 0.15,
+    '马銮湾': 0.15,
+    '坂头水库': 0.15,
+    '石壁水库': 0.15,
+    '后井水库': 0.15,
+    '苏内水库': 0.15,
+  },
   minRingPoints: 4,
   minRingAreaKm2: 0.02,                 // 闭合环面积阈值（≈0.32 格²）
 
@@ -807,16 +821,28 @@ function build() {
 
   const toGrid = (lonlat) => lonlat.map(([lon, lat]) => [projX(lon), projY(lat)]);
 
+  // 简化容差查表：按名称覆盖优先（绝对值），否则回落到图层默认容差
+  const simpHits = new Map();                        // name → { tol, verts }，统计用
+  function simpTolFor(name, key) {
+    const byName = CFG.simplifyByName ? CFG.simplifyByName[name] : undefined;
+    if (typeof byName === 'number' && byName > 0) return byName;
+    return CFG.simplify[key || 'poly'];
+  }
+  function noteSimpHit(name, tol, verts) {
+    if (CFG.simplifyByName && typeof CFG.simplifyByName[name] === 'number') simpHits.set(name, { tol, verts });
+  }
+
   function polyFeature(el, buckets) {
     const rings = elementRings(el);
     if (!rings) return;
     const name = normName(el.tags);
+    const tol = simpTolFor(name, 'poly');
     const outer = [];
     for (const r of rings.outer) {
       const g = toGrid(r);
       const clipped = clipRing(g);
       if (!clipped) continue;
-      const simp = dpRing(clipped, CFG.simplify.poly);
+      const simp = dpRing(clipped, tol);
       if (simp.length < CFG.minRingPoints) continue;
       if (!(el.tags && el.tags.natural === 'bay')) {
         if (ringAreaCells(simp) < CFG.minRingAreaKm2 / (CFG.CELL_M / 1000) ** 2) continue;
@@ -828,9 +854,10 @@ function build() {
     for (const r of rings.inner) {
       const clipped = clipRing(toGrid(r));
       if (!clipped) continue;
-      const simp = dpRing(clipped, CFG.simplify.poly);
+      const simp = dpRing(clipped, tol);
       if (simp.length >= CFG.minRingPoints) inner.push(simp);
     }
+    noteSimpHit(name, tol, outer.reduce((s, r) => s + r.length, 0));
     buckets.push({ name, outer, inner });
   }
 
@@ -882,7 +909,7 @@ function build() {
         for (const r of rings.outer) {
           const clipped = clipRing(toGrid(r));
           if (!clipped) continue;
-          const simp = dpRing(clipped, CFG.simplify.poly);
+          const simp = dpRing(clipped, simpTolFor(name, 'poly'));
           if (simp.length >= CFG.minRingPoints) outer.push(simp);
         }
         if (outer.length && name) admin.push({ level, name, outer });
@@ -1091,6 +1118,8 @@ function build() {
       admin: adminRows.length, places: placeRows.length, names: N.list.length,
     },
     simplify: Object.assign({}, CFG.simplify),
+    simplifyByName: Object.assign({}, CFG.simplifyByName),
+    simplifyByNameHits: Object.fromEntries(simpHits),
     sea: S.sea,
     seaDiag: S.seaDiag,
     elapsedMs: Date.now() - t0,
@@ -1102,6 +1131,8 @@ function build() {
 if (has('fetch')) await stageFetch();
 
 // 预算自调节：顶点/字节超线就整体放大简化容差重跑（最多 4 轮）
+// 注意：CFG.simplifyByName 是绝对容差，不参与下面的整体放大，所以按名称覆盖的要素
+// （如「湖边水库」）无论重跑几轮、是否触发预算兜底，输出的环都是同一个。
 let res;
 for (let round = 1; round <= 4; round++) {
   res = build();

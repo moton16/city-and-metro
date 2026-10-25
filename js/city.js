@@ -1082,6 +1082,16 @@
       for (const c of this.landmarkCells(D.landmarks[k])) if (this.lu[c] === LU.LANDMARK || (D.landmarks[k].kind === 'campus' && this.lu[c] !== LU.WATER)) this.protectedId[c] = k + 1;
     }
     this.applyReclaim(year, true);   // 历史海岸线恢复到存档年份（用地已从存档恢复）
+    // 地图数据升级后旧存档的用地是按旧水系生成的（2026-10 湖边水库按 OSM 重描即是这种情形）。
+    // 判据与 generate() 的"水面格"完全一致（landFrac < 0.5 且 waterD < 0），只修正几何变了的格：
+    //   现在是水面的格 → 清回水域（否则湖里会留着旧住宅、人口与楼）；
+    //   现在是陆地的格 → 若是存档里的水域用地则放回待开发（否则湖缩了以后那片永远长不出来）。
+    for (let c = 0; c < N; c++) {
+      if (this.landFrac[c] < 0.5 && this.waterD[c] < 0) {
+        if (this.lu[c] === LU.WATER) continue;
+        this.lu[c] = LU.WATER; this.pop[c] = 0; this.jobs[c] = 0; this.bh[c] = 0; this.street[c] = 0; this.taken[c] = 0;
+      } else if (this.lu[c] === LU.WATER && this.plan[c] !== LU.WATER) this.lu[c] = LU.RURAL;
+    }
     this.eArt.fill(0); this.eName.fill(0); this.roadsBuilt.fill(0);
     this.applyRoads(year);
     this.updateStreets();
