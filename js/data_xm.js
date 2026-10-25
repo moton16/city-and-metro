@@ -76,8 +76,8 @@
       { id: 'xm_gulangyu', n: '鼓浪屿', name: '鼓浪屿（历史风貌区）', streets: ['鼓浪屿街道'], open: null, plan: 'res', note: '1.88 km²，2017 年列入世界文化遗产；全岛按历史风貌保护，不开放建设（史实）' },
       { id: 'xm_mountains', n: '万石山—仙岳山', name: '万石山—仙岳山（城市山地）', poly: [wanshishan, xianyueshan], open: null, scenic: true, plan: 'res', note: '本岛中部山体与万石植物园、仙岳山公园，作为山林保护' },
       { id: 'xm_xmu', n: '厦大—南普陀', name: '厦大—南普陀（保护）', streets: ['滨海街道'], open: null, plan: 'campus', note: '厦门大学（1921）、南普陀寺与五老峰南麓，整体按文教与风景保护（历史近似：1990 年曾厝垵、黄厝仍为渔村）' },
-      { id: 'xm_yundang', n: '筼筜湖', name: '筼筜湖（水面与环湖绿地）', poly: yundang, open: null, plan: 'res', note: '1970-07 筑堤、1971-09 围垦成内湖，水域缩至 1.6 km²；湖面与环湖绿地不能开发（史实）' },
-      { id: 'xm_jimei_xuecun', n: '集美学村', name: '集美学村（保护）', streets: ['集美街道'], open: null, plan: 'campus', note: '陈嘉庚 1913 年创办的学村，嘉庚建筑群按历史风貌保护（史实）' },
+      { id: 'xm_yundang', n: '筼筜湖', name: '筼筜湖（水面与环湖绿地）', poly: yundang, open: 1990, plan: 'res', note: '1970-07 筑堤、1971-09 围垦成内湖，水域缩至 1.6 km²；湖面由水陆掩膜判为水域、不能设站，但轨道可以从湖底穿过（open 不能设 null，否则滨北整片会被当成未开放区而锁死穿越）' },
+      { id: 'xm_jimei_xuecun', n: '集美学村', name: '集美学村（保护）', streets: ['集美街道'], open: 1990, plan: 'campus', note: '陈嘉庚 1913 年创办的学村，嘉庚建筑群按历史风貌保护（史实）；学村本身 1990 年即在，不能设 null（否则集美街道整片锁死，跨海到集美的线全被拦）' },
       // 本岛
       { id: 'xm_siming', n: '思明老城', name: '思明老城（中山路·中华·厦港·开元·筼筜）', streets: ['鹭江街道', '中华街道', '厦港街道', '开元街道', '筼筜街道'], district: ['思明区'], open: 1990, plan: 'oldmix', note: '骑楼商业街与老城居住区，1990 年厦门人口最密的地方；筼筜湖围垦后的滨北新市区也在此片' },
       { id: 'xm_dongdu', n: '东渡港区', name: '东渡港区（一期·二期）', poly: dongdu, open: 1984, plan: 'port', note: '1975 动工、1982 试投产、1984 建成（4 个万吨级泊位，岸线 976 m）；1990 年代建东渡二期（史实）' },
